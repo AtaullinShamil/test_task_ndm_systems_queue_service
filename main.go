@@ -12,6 +12,7 @@ import (
 
 type waiter struct {
 	ch      chan struct{}
+	ctx     context.Context
 	message string
 	active  bool
 }
@@ -50,12 +51,17 @@ func (b *broker) put(name, message string) {
 	for len(q.waiters) > 0 {
 		w := q.waiters[0]
 		q.waiters = q.waiters[1:]
-		if w.active {
-			w.active = false
-			w.message = message
-			close(w.ch)
-			return
+		if !w.active {
+			continue
 		}
+		if w.ctx.Err() != nil {
+			w.active = false
+			continue
+		}
+		w.active = false
+		w.message = message
+		close(w.ch)
+		return
 	}
 	q.messages = append(q.messages, message)
 }
@@ -75,7 +81,7 @@ func (b *broker) get(ctx context.Context, name string, wait bool) (string, bool)
 		return "", false
 	}
 
-	w := &waiter{ch: make(chan struct{}), active: true}
+	w := &waiter{ch: make(chan struct{}), ctx: ctx, active: true}
 	q.waiters = append(q.waiters, w)
 	b.mu.Unlock()
 

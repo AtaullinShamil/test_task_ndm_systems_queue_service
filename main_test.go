@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -78,5 +79,27 @@ func TestQueueFullCycle(t *testing.T) {
 	}
 	if body := <-second; body != "executive" {
 		t.Fatalf("second waiter got %q", body)
+	}
+}
+
+func TestPutSkipsExpiredWaiter(t *testing.T) {
+	b := newBroker()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	b.mu.Lock()
+	q := b.getQueue("pet")
+	q.waiters = append(q.waiters, &waiter{
+		ch:     make(chan struct{}),
+		ctx:    ctx,
+		active: true,
+	})
+	b.mu.Unlock()
+
+	b.put("pet", "cat")
+
+	message, ok := b.get(context.Background(), "pet", false)
+	if !ok || message != "cat" {
+		t.Fatalf("message was lost: got %q, ok %v", message, ok)
 	}
 }
